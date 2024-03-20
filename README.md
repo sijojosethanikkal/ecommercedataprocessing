@@ -20,7 +20,7 @@ The program will exit in the following cases:
 
 
 ## Flow Diagram
- [Flow Diagram](ecommercedataprocessing_flow_chart.png)
+ [Flow Diagram](flowdiagram/ecommercedataprocessing_flow_chart.png)
  
 ## Running the Program
 
