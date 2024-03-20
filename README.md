@@ -19,7 +19,7 @@ The program will exit in the following cases:
 2. **Empty File Data**: The program will exit if the entire file data is empty.
 
 
-## Flow Diagaram
+## Flow Diagram
  [Flow Diagram](ecommercedataprocessing_flow_chart.png)
  
 ## Running the Program
