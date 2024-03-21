@@ -98,4 +98,6 @@ assert retcode == 0, "The pytest invocation failed. See the log for details."
  ## Schedule Job.
  To run test preiodically, we can schedule job with mode as test.
  
- Note: While running in test mode, the files are not written to s3.
+ Note: While running in test mode, the files are not written to s3. 
+
+The conf folder is to store the schedule job json.
