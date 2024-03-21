@@ -48,10 +48,10 @@ def writeToS3(df, bucketName, fileName):
     month = current_date.strftime("%m")
     day = current_date.strftime("%d")
     folder_path = f"year={year}/month={month}/day={day}"
-    file_path = f"s3://{bucketName}/{folder_path}/{fileName}.csv"
+    file_path = f"s3://{bucketName}/{folder_path}/{fileName}"
 
     if file_path.startswith("s3://"):
-        # Write dataframe to S3 as CSV with index=False
+        # Write dataframe to S3 as CSV with index=False and mode="overwrite"
         df.write.mode("overwrite").option("header", "true").option("index", "false").csv(file_path)
         logging.info(f"Dataframe successfully written to {file_path}")
         return True
