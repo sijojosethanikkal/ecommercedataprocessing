@@ -32,14 +32,13 @@
 # COMMAND ----------
 
 # Libraries to load
-import logging
+from ecommerce_functions import *
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType, LongType, TimestampType
-import sys
-from pyspark.sql.functions import col, to_date,regexp_extract
 from pyspark.sql import functions as F
-from pyspark.sql.functions import round
-from pyspark.sql.functions import year
+from pyspark.sql.functions import col, to_date, regexp_extract, round, year
+from pyspark.sql.types import DoubleType, IntegerType, LongType, StringType, StructField, StructType, TimestampType
+import logging
+import sys
 
 # COMMAND ----------
 
@@ -87,6 +86,8 @@ product_schema = StructType([
 dbutils.widgets.text("order_file","s3://ecomerce/Order.json")
 dbutils.widgets.text("customer_file","s3://ecomerce/customer.xlsx")
 dbutils.widgets.text("product_file","s3://ecomerce/product.csv")
+dbutils.widgets.text("outputbucket","ecommerce/output")
+dbutils.widgets.dropdown("Mode","Test",["Test","Dev","Prod"])
 
 
 # COMMAND ----------
@@ -95,6 +96,8 @@ dbutils.widgets.text("product_file","s3://ecomerce/product.csv")
 order_file = dbutils.widgets.get("order_file")
 customer_file = dbutils.widgets.get("customer_file")
 product_file = dbutils.widgets.get("product_file")
+outputbucket = dbutils.widgets.get("outputbucket")
+mode = dbutils.widgets.get("Mode")
 
 # COMMAND ----------
 
@@ -105,29 +108,21 @@ product_file = dbutils.widgets.get("product_file")
 
 try:
   # Read JSON data with explicit schema.
-    order_df = spark.read.option("multiLine", "true").schema(order_schema).json(order_file)
+    if fileExists(order_file):
+      order_df = spark.read.option("multiLine", "true").schema(order_schema).json(order_file)
+    if dataframeEmpty(order_df):
+      print("Dataframe is empty")
 except Exception as e:
   print("Error occurred while reading JSON order data. Please check!. Error: ", e)
   sys.exit(1)
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ### Check for any error in df
-
-# COMMAND ----------
-
-# Chek the data frame is totaly empty
-if order_df.isEmpty():
-  print("order data frame is empty")
-  sys.exit(1)
-
-# COMMAND ----------
-
 # Check if any column is fully null
-for column in order_df.columns:
-    if order_df.select(col(column)).filter(col(column).isNull()).count() == order_df.count():
-        logging.warning(f"Column '{column}' is fully null.")
+if checkColumnsNull(order_df):
+    print('Data frame has no empty columns')
+else:
+    logging.warning(f"Column '{column}' is fully null.")
 
 # COMMAND ----------
 
@@ -183,29 +178,21 @@ except Exception as e:
 
 try:
   # Read xslx data with explicit schema.
-    customer_df = spark.read.format("com.crealytics.spark.excel").option("header", "true").schema(custom_schema).load(customer_file)
+    if fileExists(customer_file):
+      customer_df = spark.read.format("com.crealytics.spark.excel").option("header", "true").schema(custom_schema).load(customer_file)
+    if dataframeEmpty(customer_df):
+      print("Dataframe is empty")
 except Exception as e:
-  print("Error occurred while reading execl customer data. Please check!. Error: ", e)
-  sys.exit(1)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Check for amy error in df
-
-# COMMAND ----------
-
-# Chek the data frame is totaly empty
-if customer_df.isEmpty():
-  print("customer data frame is empty")
+  print("Error occurred while reading execl customer data. Please check!. Error:", e)
   sys.exit(1)
 
 # COMMAND ----------
 
 # Check if any column is fully null
-for column in customer_df.columns:
-    if customer_df.select(col(column)).filter(col(column).isNull()).count() == order_df.count():
-        logging.warning(f"Column '{column}' is fully null.")
+if checkColumnsNull(customer_df):
+    print('Data frame has no empty columns')
+else:
+    logging.warning(f"Column '{column}' is fully null.")
 
 # COMMAND ----------
 
@@ -216,29 +203,21 @@ for column in customer_df.columns:
 
 try:
   # Read csv data with explicit schema.
-    product_df = spark.read.csv(product_csv, header=True, schema=product_schema)
+    if fileExists(product_csv):
+      product_df = spark.read.csv(product_csv, header=True, schema=product_schema)
+    if dataframeEmpty(product_df):
+      print("Dataframe is empty")
 except Exception as e:
   print("Error occurred while reading product csv data. Please check!. Error: ", e)
   sys.exit(1)
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ### Check for any error in df
-
-# COMMAND ----------
-
-# Chek the data frame is totaly empty
-if product_df.isEmpty():
-  print("product data frame is empty")
-  sys.exit(1)
-
-# COMMAND ----------
-
 # Check if any column is fully null
-for column in product_df.columns:
-    if product_df.select(col(column)).filter(col(column).isNull()).count() == product_df.count():
-        logging.warning(f"Column '{column}' is fully null.")
+if checkColumnsNull(product_df):
+    print('Data frame has no empty columns')
+else:
+    logging.warning(f"Column '{column}' is fully null.")
 
 # COMMAND ----------
 
@@ -265,6 +244,19 @@ customer_product_counts.show()
 
 # COMMAND ----------
 
+# Test the row count and columns in the data frame.
+if mode == 'Test':
+    assert checkRowCount(customer_product_counts) == True
+    assert checkColumnExists(customer_product_counts,["Customer Name", "Product Name","Count"]) == True
+
+# COMMAND ----------
+
+# Write the output to csv. if the mode is not Test
+if mode != 'Test':
+    writeToS3(customer_product_counts, outputbucket, 'customer_product_counts')
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Create an enriched table which has
 # MAGIC 1. order information 
@@ -276,9 +268,20 @@ customer_product_counts.show()
 # COMMAND ----------
 
 order_info = master_df.select('Order ID','Profit','Customer Name','Country','Category','Sub-Category')
-order_info.show()
 order_info = order_info.select(round(order_info["Profit"], 2).alias("Profit"))
-order_info.show()
+
+# COMMAND ----------
+
+# Test the row count and columns in the data frame.
+if mode == 'Test':
+    assert checkRowCount(order_info) == True
+    assert checkColumnExists(order_info, ["Order ID", "Profit","Customer Name","Country","Category","Sub-Category"]) == True
+
+# COMMAND ----------
+
+# Write the output to csv. if the mode is not Test
+if mode != 'Test':
+    writeToS3(order_info, outputbucket, 'order_info')
 
 # COMMAND ----------
 
@@ -300,8 +303,18 @@ agg_df = agg_df.withColumnRenamed("sum(Profit)", "Profit")
 agg_df = agg_df.withColumn("Profit", round(col("Profit"), 2))
 agg_df = agg_df.orderBy("year")
 
-agg_df.show()
+# COMMAND ----------
 
+# Test the row count and columns in the data frame.
+if mode == 'Test':
+    assert checkRowCount(agg_df) == True
+    assert checkColumnExists(agg_df, ["year", "Category","Sub-Category","Customer Name","Profit"]) == True
+
+# COMMAND ----------
+
+# Write the output to csv. if the mode is not Test
+if mode != 'Test':
+    writeToS3(agg_df, outputbucket, 'agg_table_year')
 
 # COMMAND ----------
 
@@ -326,8 +339,18 @@ master_df.createOrReplaceTempView("master_table")
 # Query the master_table to get Profit by Year
 profit_by_year_df = spark.sql("SELECT year, ROUND(SUM(Profit),2) AS TotalProfit FROM master_table GROUP BY year ORDER BY year")
 
-# Show the resulting DataFrame
-profit_by_year_df.show()
+# COMMAND ----------
+
+# Test the row count and columns in the data frame.
+if mode == 'Test':
+    assert checkRowCount(profit_by_year_df) == True
+    assert checkColumnExists(profit_by_year_df, ["year", "TotalProfit"]) == True
+
+# COMMAND ----------
+
+# Write the output to csv. if the mode is not Test
+if mode != 'Test':
+    writeToS3(profit_by_year_df, outputbucket, 'profit_by_year')
 
 # COMMAND ----------
 
@@ -338,8 +361,18 @@ profit_by_year_df.show()
 
 profit_by_year_category_df = spark.sql("SELECT year, Category, ROUND(SUM(Profit),2) AS TotalProfit FROM master_table GROUP BY year, Category ORDER BY year, Category")
 
-profit_by_year_category_df.show()
+# COMMAND ----------
 
+# Test the row count and columns in the data frame.
+if mode == 'Test':
+    assert checkRowCount(profit_by_year_category_df) == True
+    assert checkColumnExists(profit_by_year_category_df, ["year", "Category","TotalProfit"]) == True
+
+# COMMAND ----------
+
+# Write the output to csv. if the mode is not Test
+if mode != 'Test':
+    writeToS3(profit_by_year_category_df, outputbucket, 'profit_by_year_category')
 
 # COMMAND ----------
 
@@ -349,7 +382,19 @@ profit_by_year_category_df.show()
 # COMMAND ----------
 
 profit_by_customer_df = spark.sql("SELECT `Customer Name`, Round(SUM(Profit),2) AS TotalProfit FROM master_table GROUP BY `Customer Name` order by TotalProfit DESC")
-profit_by_customer_df.show()
+
+# COMMAND ----------
+
+# Test the row count and columns in the data frame.
+if mode == 'Test':
+    assert checkRowCount(profit_by_customer_df) == True
+    assert checkColumnExists(profit_by_customer_df, ["Customer Name","TotalProfit"]) == True
+
+# COMMAND ----------
+
+# Write the output to csv. if the mode is not Test
+if mode != 'Test':
+    writeToS3(profit_by_customer_df, outputbucket, 'profit_by_customer')
 
 # COMMAND ----------
 
@@ -360,4 +405,15 @@ profit_by_customer_df.show()
 
 profit_by_customer_year_df = spark.sql("SELECT `Customer Name`, year, Round(SUM(Profit), 2) AS TotalProfit FROM master_table GROUP BY `Customer Name`, year ORDER BY year, TotalProfit DESC")
 
-profit_by_customer_year_df.show()
+# COMMAND ----------
+
+# Test the row count and columns in the data frame.
+if mode == 'Test':
+    assert checkRowCount(profit_by_customer_year_df) == True
+    assert checkColumnExists(profit_by_customer_year_df, ["Customer Name","year","TotalProfit"]) == True
+
+# COMMAND ----------
+
+# Write the output to csv. if the mode is not Test
+if mode != 'Test':
+    writeToS3(profit_by_customer_year_df, outputbucket, 'profit_by_customer_year')
